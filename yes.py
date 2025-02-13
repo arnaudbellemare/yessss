@@ -199,7 +199,13 @@ for i in range(len(df_skew['stamp']) - 1):
     cmap_bvc = plt.cm.Blues if bvc_val >= 0 else plt.cm.Reds
     color = cmap_bvc(norm_bvc(bvc_val))
     ax1.plot(xvals, yvals, color=color, linewidth=1)
+
+# Plot EMA of ScaledPrice
 ax1.plot(df_skew['stamp'], df_skew['ScaledPrice_EMA'], color='gray', linewidth=0.7, label=f"EMA({ema_window})")
+
+# Overlay VWAP on the same graph
+ax1.plot(df_skew['stamp'], df_skew['vwap_transformed'], color='purple', linewidth=0.7, label="VWAP")
+
 ax1.set_xlabel("Time", fontsize=8)
 ax1.set_ylabel("ScaledPrice", fontsize=8)
 ax1.xaxis.set_major_locator(mdates.AutoDateLocator())
@@ -213,6 +219,7 @@ margin = price_range * 0.05
 ax1.set_ylim(global_min - margin, global_max + margin)
 plt.tight_layout()
 st.pyplot(fig1)
+
 
 fig2, ax2 = plt.subplots(figsize=(10, 3), dpi=120)
 ax2.plot(bvc_metrics['stamp'], bvc_metrics['bvc'], color="blue", linewidth=0.8, label="BVC")
