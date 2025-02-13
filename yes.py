@@ -2,7 +2,35 @@ import pandas as pd
 import numpy as np
 from scipy.stats import t as studentt
 import matplotlib.pyplot as plt
+lookback_options = {
+    "1 Day": 1440,
+    "3 Days": 4320,
+    "1 Week": 10080,
+    "2 Weeks": 20160,
+    "1 Month": 43200
+}
 
+def fetch_data(symbol, timeframe="1m", lookback_minutes=1440):
+    exchange = ccxt.kraken({
+        'enableRateLimit': True,  # Respect Kraken's rate limits
+    })
+    since = exchange.milliseconds() - lookback_minutes * 60 * 1000
+    try:
+        ohlcv = exchange.fetch_ohlcv(symbol, timeframe, since=since)
+    except Exception as e:
+        raise ValueError(f"Error fetching data for {symbol}: {e}")
+    
+    if not ohlcv:
+        raise ValueError(f"No data returned for {symbol}.")
+    
+    df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
+    print("Fetched data columns:", df.columns)  # Debugging
+    print("First rows of fetched data:", df.head())  # Debugging
+    
+    df["stamp"] = pd.to_datetime(df["timestamp"], unit="ms", utc=True)
+    # If needed, convert to a local timezone, e.g.:
+    # df["stamp"] = df["stamp"].dt.tz_convert("America/New_York")
+    return df
 class HawkesBVC:
     def __init__(self, window: int, kappa: float = None, dof=0.25, decays=None):
         """
