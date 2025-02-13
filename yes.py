@@ -137,7 +137,7 @@ st.header("Section 1: Real Data Analysis")
 # Input widget: symbol (use "XBT/USD" for Kraken)
 symbol_bsi1 = st.sidebar.text_input(
     "Enter Ticker Symbol for (Section 2)",
-    value="XBT/USD",
+    value="BTC/USD",
     key="symbol_bsi1"
 )
 
