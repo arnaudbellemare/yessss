@@ -2,6 +2,11 @@ import pandas as pd
 import numpy as np
 from scipy.stats import t as studentt
 import matplotlib.pyplot as plt
+import ccxt
+import streamlit as st
+import matplotlib.dates as mdates
+
+# Define lookback options (in minutes)
 lookback_options = {
     "1 Day": 1440,
     "3 Days": 4320,
@@ -10,6 +15,7 @@ lookback_options = {
     "1 Month": 43200
 }
 
+# Fetch data using ccxt from Kraken
 def fetch_data(symbol, timeframe="1m", lookback_minutes=1440):
     exchange = ccxt.kraken({
         'enableRateLimit': True,  # Respect Kraken's rate limits
@@ -28,9 +34,9 @@ def fetch_data(symbol, timeframe="1m", lookback_minutes=1440):
     print("First rows of fetched data:", df.head())  # Debugging
     
     df["stamp"] = pd.to_datetime(df["timestamp"], unit="ms", utc=True)
-    # If needed, convert to a local timezone, e.g.:
-    # df["stamp"] = df["stamp"].dt.tz_convert("America/New_York")
     return df
+
+# Define the HawkesBVC class
 class HawkesBVC:
     def __init__(self, window: int, kappa: float = None, dof=0.25, decays=None):
         """
@@ -91,14 +97,11 @@ class HawkesBVC:
         
         If there are too few events, fallback to the average of the provided decay rates.
         """
-        # Identify "significant" events
         mask = (labels > 0.5) | (labels < -0.5)
         if mask.sum() < 2:
             estimated_kappa = np.mean(self.decays)
         else:
-            # Convert selected times to datetime and then to seconds since epoch
             selected_times = pd.to_datetime(times[mask])
-            # Convert to seconds (ensure integer division by 10**9)
             selected_seconds = selected_times.astype(np.int64) // 10**9
             selected_seconds = np.sort(selected_seconds)
             time_diffs = np.diff(selected_seconds)
@@ -106,7 +109,6 @@ class HawkesBVC:
                 estimated_kappa = np.mean(self.decays)
             else:
                 avg_diff = np.mean(time_diffs)
-                # kappa is set as 1/(average inter-event time) 
                 estimated_kappa = 1.0 / avg_diff
         print(f"Estimated kappa: {estimated_kappa}")
         return estimated_kappa
@@ -121,37 +123,23 @@ class HawkesBVC:
             + p9.theme(figure_size=(11, 5))
         )
 
-
-###############################
-# SECTION 2: Momentum, Skewness & Hawkes BVC Analysis
-###############################
-import streamlit as st
-import matplotlib.dates as mdates
-
-# Placeholder definitions for dependencies in your code.
-# Replace these with your actual implementations.
-lookback_options = {'1h': 60, '6h': 360, '24h': 1440}
-
-def fetch_data(symbol, timeframe, lookback_minutes):
-    # Dummy data for example purposes.
-    date_rng = pd.date_range(start='2021-01-01', periods=lookback_minutes, freq='T')
-    data = pd.DataFrame(date_rng, columns=['stamp'])
-    data['close'] = np.linspace(100, 200, lookback_minutes)
-    data['volume'] = np.random.randint(1, 100, size=lookback_minutes)
-    data['high'] = data['close'] * 1.01
-    data['low'] = data['close'] * 0.99
-    return data
-
+# Exponential Moving Average function
 def ema(data, window):
     return pd.Series(data).ewm(span=window, adjust=False).mean().values
 
+# ---------------------------
+# Streamlit App: Data Fetching and Analysis
+# ---------------------------
 st.header("Section 1:")
 
+# Input widget: symbol (use "XBT/USD" for Kraken)
 symbol_bsi1 = st.sidebar.text_input(
     "Enter Ticker Symbol for (Section 2)",
-    value="BTC/USD",
+    value="XBT/USD",
     key="symbol_bsi1"
 )
+
+# Input widget: lookback period
 lookback_label_bsi1 = st.sidebar.selectbox(
     "Select Lookback Period (Section 2)",
     list(lookback_options.keys()),
@@ -161,24 +149,21 @@ limit_bsi1 = lookback_options[lookback_label_bsi1]
 
 st.write(f"Fetching data for (Section 2): **{symbol_bsi1}** with a lookback of **{limit_bsi1}** minutes.")
 
+# Fetch OHLCV data using ccxt
 try:
     prices_bsi = fetch_data(symbol=symbol_bsi1, timeframe="1m", lookback_minutes=limit_bsi1)
 except Exception as e:
     st.error(f"Error fetching data (Section 2): {e}")
     st.stop()
-prices_bsi = fetch_data(symbol=symbol_bsi1, timeframe="1m", lookback_minutes=limit_bsi1)
+
+# Ensure data has the required columns
 prices_bsi.dropna(subset=['close','volume'], inplace=True)
-
-# Convert "stamp" to datetime
 prices_bsi['stamp'] = pd.to_datetime(prices_bsi['stamp'])
-
-# Set the index to the "stamp" column
 prices_bsi.set_index('stamp', inplace=True)
 
-# Transformations:
+# Data Transformations:
 prices_bsi['ScaledPrice'] = np.log(prices_bsi['close'] / prices_bsi['close'].iloc[0]) * 1e4
 prices_bsi['ScaledPrice_EMA'] = ema(prices_bsi['ScaledPrice'].values, window=10)
-prices_bsi = prices_bsi.dropna(subset=['close', 'volume'])
 prices_bsi['cum_vol'] = prices_bsi['volume'].cumsum()
 prices_bsi['cum_pv'] = (prices_bsi['close'] * prices_bsi['volume']).cumsum()
 prices_bsi['vwap'] = prices_bsi['cum_pv'] / prices_bsi['cum_vol']
@@ -188,7 +173,6 @@ if 'buyvolume' not in prices_bsi.columns or 'sellvolume' not in prices_bsi.colum
     prices_bsi['buyvolume'] = prices_bsi['volume'] * 0.5
     prices_bsi['sellvolume'] = prices_bsi['volume'] - prices_bsi['buyvolume']
 
-# Skewness calculations
 st.write("## Skewness")
 df_skew = prices_bsi.copy()
 df_skew['hlc3'] = (df_skew['high'] + df_skew['low'] + df_skew['close']) / 3.0
@@ -232,14 +216,12 @@ df_skew['deviation_min'] = dev_min_series
 df_skew['normalized_skew'] = (df_skew['deviation_max'] / df_skew['deviation_min'] - 1) * 3
 df_skew['normalized_z'] = (df_skew['normalized_skew'] + 3) / 6
 df_skew['normalized_z'] = df_skew['normalized_z'].ffill().bfill()
-
 df_skew['ScaledPrice'] = np.log(df_skew['close'] / df_skew['close'].iloc[0]) * 1e4
 
-# Compute EMA over ScaledPrice
 ema_window = 10
 df_skew['ScaledPrice_EMA'] = ema(df_skew['ScaledPrice'].values, ema_window)
 
-# Merge Hawkes BVC metrics into df_skew
+# Compute Hawkes BVC metrics and merge into the skew DataFrame
 hawkes_bvc = HawkesBVC(window=20, kappa=0.1)
 bvc_metrics = hawkes_bvc.eval(prices_bsi.reset_index())
 df_skew = df_skew.merge(bvc_metrics, on='stamp', how='left')
@@ -247,9 +229,8 @@ df_skew = df_skew.merge(bvc_metrics, on='stamp', how='left')
 global_min = df_skew['ScaledPrice'].min()
 global_max = df_skew['ScaledPrice'].max()
 
-# Plot Skewness + EMA overlay with BVC-based colors
+# Plot Skewness with EMA overlay and BVC-based segment coloring
 fig, ax = plt.subplots(figsize=(10, 4), dpi=120)
-
 norm_bvc = plt.Normalize(df_skew['bvc'].min(), df_skew['bvc'].max())
 
 for i in range(len(df_skew['stamp']) - 1):
@@ -259,17 +240,9 @@ for i in range(len(df_skew['stamp']) - 1):
     
     cmap_bvc = plt.cm.Blues if bvc_val >= 0 else plt.cm.Reds
     color = cmap_bvc(norm_bvc(bvc_val))
-    
     ax.plot(xvals, yvals, color=color, linewidth=1)
 
-ax.plot(
-    df_skew['stamp'],
-    df_skew['ScaledPrice_EMA'],
-    color='gray',
-    linewidth=0.7,
-    label=f"EMA({ema_window})"
-)
-
+ax.plot(df_skew['stamp'], df_skew['ScaledPrice_EMA'], color='gray', linewidth=0.7, label=f"EMA({ema_window})")
 ax.set_xlabel("Time", fontsize=8)
 ax.set_ylabel("ScaledPrice", fontsize=8)
 ax.set_title(" ", fontsize=10)
@@ -278,26 +251,16 @@ ax.xaxis.set_major_locator(mdates.AutoDateLocator())
 ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d %H:%M'))
 plt.setp(ax.get_xticklabels(), rotation=30, ha='right', fontsize=7)
 plt.setp(ax.get_yticklabels(), fontsize=7)
-ax.text(
-    0.5, 0.5, symbol_bsi1, transform=ax.transAxes,  
-    fontsize=24, color='lightgrey', alpha=0.3,
-    ha='center', va='center'
-)
-
+ax.text(0.5, 0.5, symbol_bsi1, transform=ax.transAxes, fontsize=24, color='lightgrey', alpha=0.3, ha='center', va='center')
 price_range = global_max - global_min
 margin = price_range * 0.05
 ax.set_ylim(global_min - margin, global_max + margin)
-
 plt.tight_layout()
 st.pyplot(fig)
 
-# Plot Hawkes BVC using the same prices_bsi data
+# Plot the Hawkes BVC metric separately
 fig_bvc, ax_bvc = plt.subplots(figsize=(10, 3), dpi=120)
-ax_bvc.plot(
-    bvc_metrics['stamp'], bvc_metrics['bvc'],
-    color="blue", linewidth=0.8,
-    label="BVC"
-)
+ax_bvc.plot(bvc_metrics['stamp'], bvc_metrics['bvc'], color="blue", linewidth=0.8, label="BVC")
 ax_bvc.set_xlabel("Time", fontsize=8)
 ax_bvc.set_ylabel("BVC", fontsize=8)
 ax_bvc.legend(fontsize=7)
@@ -306,10 +269,6 @@ ax_bvc.xaxis.set_major_locator(mdates.AutoDateLocator())
 ax_bvc.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d %H:%M'))
 plt.setp(ax_bvc.get_xticklabels(), rotation=30, ha='right', fontsize=7)
 plt.setp(ax_bvc.get_yticklabels(), fontsize=7)
-ax_bvc.text(
-    0.5, 0.5, symbol_bsi1, transform=ax_bvc.transAxes,  
-    fontsize=24, color='lightgrey', alpha=0.3,
-    ha='center', va='center'
-)
+ax_bvc.text(0.5, 0.5, symbol_bsi1, transform=ax_bvc.transAxes, fontsize=24, color='lightgrey', alpha=0.3, ha='center', va='center')
 plt.tight_layout()
 st.pyplot(fig_bvc)
