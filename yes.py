@@ -6,6 +6,10 @@ import ccxt
 import streamlit as st
 import matplotlib.dates as mdates
 
+# ---------------------------
+# SECTION 1: Real Data Analysis using Kraken via ccxt
+# ---------------------------
+
 # Define lookback options (in minutes)
 lookback_options = {
     "1 Day": 1440,
@@ -15,7 +19,7 @@ lookback_options = {
     "1 Month": 43200
 }
 
-# Fetch data using ccxt from Kraken (this will pull recent, real data)
+# Fetch real OHLCV data from Kraken
 def fetch_data(symbol, timeframe="1m", lookback_minutes=1440):
     exchange = ccxt.kraken({
         'enableRateLimit': True,  # Respect Kraken's rate limits
@@ -36,7 +40,7 @@ def fetch_data(symbol, timeframe="1m", lookback_minutes=1440):
     df["stamp"] = pd.to_datetime(df["timestamp"], unit="ms", utc=True)
     return df
 
-# Define the HawkesBVC class
+# Define the HawkesBVC class (custom estimation without tick)
 class HawkesBVC:
     def __init__(self, window: int, kappa: float = None, dof=0.25, decays=None):
         """
@@ -127,15 +131,13 @@ class HawkesBVC:
 def ema(data, window):
     return pd.Series(data).ewm(span=window, adjust=False).mean().values
 
-# ---------------------------
-# Streamlit App: Data Fetching and Analysis
-# ---------------------------
-st.header("Section 1:")
+# Streamlit layout for Section 1
+st.header("Section 1: Real Data Analysis")
 
 # Input widget: symbol (use "XBT/USD" for Kraken)
 symbol_bsi1 = st.sidebar.text_input(
     "Enter Ticker Symbol for (Section 2)",
-    value="BTC/USD",
+    value="XBT/USD",
     key="symbol_bsi1"
 )
 
@@ -149,14 +151,14 @@ limit_bsi1 = lookback_options[lookback_label_bsi1]
 
 st.write(f"Fetching data for (Section 2): **{symbol_bsi1}** with a lookback of **{limit_bsi1}** minutes.")
 
-# Fetch OHLCV data using ccxt (this pulls real, recent data)
+# Fetch OHLCV data using ccxt (real, recent data)
 try:
     prices_bsi = fetch_data(symbol=symbol_bsi1, timeframe="1m", lookback_minutes=limit_bsi1)
 except Exception as e:
     st.error(f"Error fetching data (Section 2): {e}")
     st.stop()
 
-# Ensure data has the required columns
+# Ensure required columns and set index
 prices_bsi.dropna(subset=['close','volume'], inplace=True)
 prices_bsi['stamp'] = pd.to_datetime(prices_bsi['stamp'])
 prices_bsi.set_index('stamp', inplace=True)
@@ -173,7 +175,7 @@ if 'buyvolume' not in prices_bsi.columns or 'sellvolume' not in prices_bsi.colum
     prices_bsi['buyvolume'] = prices_bsi['volume'] * 0.5
     prices_bsi['sellvolume'] = prices_bsi['volume'] - prices_bsi['buyvolume']
 
-st.write("## Skewness")
+st.write("## Skewness and BVC Analysis")
 df_skew = prices_bsi.copy()
 df_skew['hlc3'] = (df_skew['high'] + df_skew['low'] + df_skew['close']) / 3.0
 SkewLength = 14
@@ -212,7 +214,6 @@ for i in range(len(df_skew)):
         
 df_skew['deviation_max'] = dev_max_series
 df_skew['deviation_min'] = dev_min_series
-
 df_skew['normalized_skew'] = (df_skew['deviation_max'] / df_skew['deviation_min'] - 1) * 3
 df_skew['normalized_z'] = (df_skew['normalized_skew'] + 3) / 6
 df_skew['normalized_z'] = df_skew['normalized_z'].ffill().bfill()
@@ -221,7 +222,7 @@ df_skew['ScaledPrice'] = np.log(df_skew['close'] / df_skew['close'].iloc[0]) * 1
 ema_window = 10
 df_skew['ScaledPrice_EMA'] = ema(df_skew['ScaledPrice'].values, ema_window)
 
-# Compute Hawkes BVC metrics and merge into the skew DataFrame
+# Compute Hawkes BVC metrics using our custom class and merge into df_skew
 hawkes_bvc = HawkesBVC(window=20, kappa=0.1)
 bvc_metrics = hawkes_bvc.eval(prices_bsi.reset_index())
 df_skew = df_skew.merge(bvc_metrics, on='stamp', how='left')
@@ -229,8 +230,8 @@ df_skew = df_skew.merge(bvc_metrics, on='stamp', how='left')
 global_min = df_skew['ScaledPrice'].min()
 global_max = df_skew['ScaledPrice'].max()
 
-# Plot Skewness with EMA overlay and BVC-based segment coloring
-fig, ax = plt.subplots(figsize=(10, 4), dpi=120)
+# Plot skewness with EMA overlay and BVC-based segment coloring
+fig1, ax1 = plt.subplots(figsize=(10, 4), dpi=120)
 norm_bvc = plt.Normalize(df_skew['bvc'].min(), df_skew['bvc'].max())
 
 for i in range(len(df_skew['stamp']) - 1):
@@ -240,35 +241,84 @@ for i in range(len(df_skew['stamp']) - 1):
     
     cmap_bvc = plt.cm.Blues if bvc_val >= 0 else plt.cm.Reds
     color = cmap_bvc(norm_bvc(bvc_val))
-    ax.plot(xvals, yvals, color=color, linewidth=1)
+    ax1.plot(xvals, yvals, color=color, linewidth=1)
 
-ax.plot(df_skew['stamp'], df_skew['ScaledPrice_EMA'], color='gray', linewidth=0.7, label=f"EMA({ema_window})")
-ax.set_xlabel("Time", fontsize=8)
-ax.set_ylabel("ScaledPrice", fontsize=8)
-ax.set_title(" ", fontsize=10)
-ax.legend(fontsize=7)
-ax.xaxis.set_major_locator(mdates.AutoDateLocator())
-ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d %H:%M'))
-plt.setp(ax.get_xticklabels(), rotation=30, ha='right', fontsize=7)
-plt.setp(ax.get_yticklabels(), fontsize=7)
-ax.text(0.5, 0.5, symbol_bsi1, transform=ax.transAxes, fontsize=24, color='lightgrey', alpha=0.3, ha='center', va='center')
+ax1.plot(df_skew['stamp'], df_skew['ScaledPrice_EMA'], color='gray', linewidth=0.7, label=f"EMA({ema_window})")
+ax1.set_xlabel("Time", fontsize=8)
+ax1.set_ylabel("ScaledPrice", fontsize=8)
+ax1.xaxis.set_major_locator(mdates.AutoDateLocator())
+ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d %H:%M'))
+plt.setp(ax1.get_xticklabels(), rotation=30, ha='right', fontsize=7)
+plt.setp(ax1.get_yticklabels(), fontsize=7)
+ax1.legend(fontsize=7)
+ax1.text(0.5, 0.5, symbol_bsi1, transform=ax1.transAxes, fontsize=24, color='lightgrey', alpha=0.3, ha='center', va='center')
 price_range = global_max - global_min
 margin = price_range * 0.05
-ax.set_ylim(global_min - margin, global_max + margin)
+ax1.set_ylim(global_min - margin, global_max + margin)
 plt.tight_layout()
-st.pyplot(fig)
+st.pyplot(fig1)
 
 # Plot the Hawkes BVC metric separately
-fig_bvc, ax_bvc = plt.subplots(figsize=(10, 3), dpi=120)
-ax_bvc.plot(bvc_metrics['stamp'], bvc_metrics['bvc'], color="blue", linewidth=0.8, label="BVC")
-ax_bvc.set_xlabel("Time", fontsize=8)
-ax_bvc.set_ylabel("BVC", fontsize=8)
-ax_bvc.legend(fontsize=7)
-ax_bvc.set_title("BVC", fontsize=10)
-ax_bvc.xaxis.set_major_locator(mdates.AutoDateLocator())
-ax_bvc.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d %H:%M'))
-plt.setp(ax_bvc.get_xticklabels(), rotation=30, ha='right', fontsize=7)
-plt.setp(ax_bvc.get_yticklabels(), fontsize=7)
-ax_bvc.text(0.5, 0.5, symbol_bsi1, transform=ax_bvc.transAxes, fontsize=24, color='lightgrey', alpha=0.3, ha='center', va='center')
+fig2, ax2 = plt.subplots(figsize=(10, 3), dpi=120)
+ax2.plot(bvc_metrics['stamp'], bvc_metrics['bvc'], color="blue", linewidth=0.8, label="BVC")
+ax2.set_xlabel("Time", fontsize=8)
+ax2.set_ylabel("BVC", fontsize=8)
+ax2.xaxis.set_major_locator(mdates.AutoDateLocator())
+ax2.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d %H:%M'))
+plt.setp(ax2.get_xticklabels(), rotation=30, ha='right', fontsize=7)
+plt.setp(ax2.get_yticklabels(), fontsize=7)
+ax2.legend(fontsize=7)
+ax2.text(0.5, 0.5, symbol_bsi1, transform=ax2.transAxes, fontsize=24, color='lightgrey', alpha=0.3, ha='center', va='center')
 plt.tight_layout()
-st.pyplot(fig_bvc)
+st.pyplot(fig2)
+
+# ---------------------------
+# SECTION 2: Hawkes Process Simulation using tick
+# ---------------------------
+st.header("Section 2: Hawkes Process Simulation")
+
+# Import tick simulation and plotting functions
+from tick.hawkes import SimuHawkesSumExpKernels, HawkesSumExpKern
+from tick.plot import plot_point_process
+
+# Simulation parameters
+end_time = 1000  # simulation end time
+decays = [0.1, 0.5, 1.0]
+baseline = [0.12, 0.07]
+# For a 2-dimensional process; adjust adjacency as needed
+adjacency = [[[0, 0.1, 0.4], [0.2, 0, 0.2]], [[0, 0, 0], [0.6, 0.3, 0]]]
+
+# Simulate the Hawkes process
+hawkes_exp_kernels = SimuHawkesSumExpKernels(
+    adjacency=adjacency, decays=decays, baseline=baseline, end_time=end_time,
+    verbose=False, seed=1039
+)
+hawkes_exp_kernels.track_intensity(0.1)
+hawkes_exp_kernels.simulate()
+
+# Fit a Hawkes process model using tick's learner
+learner = HawkesSumExpKern(decays, penalty='elasticnet', elastic_net_ratio=0.8)
+learner.fit(hawkes_exp_kernels.timestamps)
+
+# Define time window for plotting
+t_min = 100
+t_max = 200
+
+# Create a figure with two subplots
+fig_sim, ax_list = plt.subplots(2, 1, figsize=(10, 6))
+learner.plot_estimated_intensity(hawkes_exp_kernels.timestamps, t_min=t_min, t_max=t_max, ax=ax_list)
+plot_point_process(hawkes_exp_kernels, plot_intensity=True, t_min=t_min, t_max=t_max, ax=ax_list)
+
+# Customize the plots
+for ax in ax_list:
+    if len(ax.lines) >= 2:
+        ax.lines[0].set_label('Estimated intensity')
+        ax.lines[1].set_label('Original intensity')
+        ax.lines[1].set_linestyle('--')
+        ax.lines[1].set_alpha(0.8)
+    if len(ax.collections) >= 2:
+        ax.collections[1].set_alpha(0)
+    ax.legend()
+
+fig_sim.tight_layout()
+st.pyplot(fig_sim)
