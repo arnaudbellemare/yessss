@@ -252,10 +252,6 @@ st.pyplot(fig2)
 # ---------------------------
 st.header("Section 2: Hawkes Process Simulation (Alternative)")
 
-# ---------------------------
-# SECTION 2: Hawkes Process Simulation (Alternative to tick)
-# ---------------------------
-st.header("Section 2: Hawkes Process Simulation (Alternative)")
 
 import numpy as np
 from numba import njit
