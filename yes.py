@@ -192,6 +192,8 @@ global_max = df_skew['ScaledPrice'].max()
 
 fig1, ax1 = plt.subplots(figsize=(10, 4), dpi=120)
 norm_bvc = plt.Normalize(df_skew['bvc'].min(), df_skew['bvc'].max())
+
+# Plot the price line with BVC color coding
 for i in range(len(df_skew['stamp']) - 1):
     xvals = df_skew['stamp'].iloc[i:i+2]
     yvals = df_skew['ScaledPrice'].iloc[i:i+2]
@@ -203,8 +205,18 @@ for i in range(len(df_skew['stamp']) - 1):
 # Plot EMA of ScaledPrice
 ax1.plot(df_skew['stamp'], df_skew['ScaledPrice_EMA'], color='gray', linewidth=0.7, label=f"EMA({ema_window})")
 
-# Overlay VWAP on the same graph
-ax1.plot(df_skew['stamp'], df_skew['vwap_transformed'], color='purple', linewidth=0.7, label="VWAP")
+# Overlay the VWAP with conditional coloring
+# (blue if price is above VWAP, red if below)
+for i in range(len(df_skew['stamp']) - 1):
+    xvals = df_skew['stamp'].iloc[i:i+2]
+    # Compare the price and the transformed VWAP at the start of the segment
+    if df_skew['ScaledPrice'].iloc[i] >= df_skew['vwap_transformed'].iloc[i]:
+        color = 'blue'
+    else:
+        color = 'red'
+    # Add label only for the first segment to avoid duplicate legend entries
+    ax1.plot(xvals, df_skew['vwap_transformed'].iloc[i:i+2], color=color, linewidth=0.7, 
+             label="VWAP" if i == 0 else None)
 
 ax1.set_xlabel("Time", fontsize=8)
 ax1.set_ylabel("ScaledPrice", fontsize=8)
@@ -219,6 +231,7 @@ margin = price_range * 0.05
 ax1.set_ylim(global_min - margin, global_max + margin)
 plt.tight_layout()
 st.pyplot(fig1)
+
 
 
 fig2, ax2 = plt.subplots(figsize=(10, 3), dpi=120)
