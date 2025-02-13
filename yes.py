@@ -297,43 +297,52 @@ ax_alt.legend()
 st.pyplot(fig_alt)
 import itertools
 import numpy as np
+# ---------------------------
+# SECTION 3: Parameter Tuning for Enhanced Predictive Power
+# ---------------------------
+st.header("Section 3: Parameter Tuning for Enhanced Predictive Power")
 
-# Example performance evaluation function
+# Ensure prices_bsi has a 'stamp' column (reset index if needed)
+if 'stamp' not in prices_bsi.columns:
+    prices_bsi.reset_index(inplace=True)
+
+# Create a target column for evaluation.
+# In this example, we use the next-period change in ScaledPrice as a proxy for future return.
+# You can adjust this to your preferred target metric.
+prices_bsi['target'] = prices_bsi['ScaledPrice'].diff().shift(-1).fillna(0)
+
 def evaluate_model(bvc_metrics, actual_data):
     """
-    Compare the BVC output with a proxy of market activity.
-    This is just an example: you might compute the mean squared error
-    between the BVC time series and some target variable derived from the data.
+    Evaluation function: computes the mean squared error (MSE) between the predicted BVC 
+    and the target (here, the next-period ScaledPrice change).
     """
-    # For illustration, assume 'actual_data' has a column 'target'
-    # Here, we align on timestamps and compute an MSE
+    # Merge actual data with BVC metrics based on the timestamp
     merged = actual_data.merge(bvc_metrics, on='stamp', how='inner')
     mse = np.mean((merged['target'] - merged['bvc'])**2)
     return mse
 
-# Define parameter grids for tuning
+# Define a grid of candidate kappa values (decay factor)
 kappa_vals = [0.05, 0.1, 0.15, 0.2]
-alpha_vals = [0.3, 0.5, 0.7]   # For simulation if needed
-beta_vals = [0.8, 1.0, 1.2]    # For simulation if needed
 
-# Assuming 'prices_bsi' DataFrame has been fetched and preprocessed
 best_score = float('inf')
 best_params = {}
 
+# Loop through each candidate kappa value and evaluate model performance
 for kappa in kappa_vals:
-    # Update the HawkesBVC instance with each candidate kappa
+    # Instantiate HawkesBVC with the candidate kappa
     hawkes_bvc = HawkesBVC(window=20, kappa=kappa)
-    bvc_metrics = hawkes_bvc.eval(prices_bsi.reset_index())
+    bvc_metrics = hawkes_bvc.eval(prices_bsi)
     
-    # Evaluate performance – here you could also loop over alpha & beta if your
-    # evaluation combines both the BVC and simulation models.
-    score = evaluate_model(bvc_metrics, prices_bsi.reset_index())
+    # Evaluate performance using the defined metric (MSE in this case)
+    score = evaluate_model(bvc_metrics, prices_bsi)
+    st.write(f"Tested kappa: {kappa}, Score (MSE): {score}")
     
-    print(f"Tested kappa: {kappa}, Score: {score}")
-    
+    # Keep track of the best-performing parameter
     if score < best_score:
         best_score = score
         best_params = {'kappa': kappa}
 
-print("Best parameters found:", best_params)
+st.write("### Best Parameters Found:")
+st.write(best_params)
+st.write("Best Score (MSE):", best_score)
 
