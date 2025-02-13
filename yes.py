@@ -6,10 +6,10 @@ import matplotlib.pyplot as plt
 class HawkesBVC:
     def __init__(self, window: int, kappa: float = None, dof=0.25, decays=None):
         """
-        :param window: Lookback window for volatility calculation
-        :param kappa: Decay factor (if None, will be learned from data)
-        :param dof: Degrees-of-freedom for Student-t distribution (default 0.25)
-        :param decays: List of decay rates for estimation (if None, defaults to [0.1, 0.5, 1.0])
+        :param window: Lookback window for volatility calculation.
+        :param kappa: Decay factor (if None, will be learned from data).
+        :param dof: Degrees-of-freedom for Student-t distribution (default 0.25).
+        :param decays: List of decay rates for fallback estimation (if None, defaults to [0.1, 0.5, 1.0]).
         """
         self._window = window
         self._kappa = kappa
@@ -54,10 +54,33 @@ class HawkesBVC:
             return 0.0
 
     def _learn_kappa(self, times, labels, volume):
-        # Without tick, we use a simple fallback:
-        # Return the average of the provided decay rates.
-        estimated_kappa = np.mean(self.decays)
-        print(f'Fallback kappa: {estimated_kappa}')
+        """
+        Estimate kappa using a simple heuristic:
+        1. Select timestamps where the absolute label > 0.5.
+        2. Convert these timestamps to seconds.
+        3. Compute the average time difference between successive events.
+        4. Set kappa as the reciprocal of the average time difference.
+        
+        If there are too few events, fallback to the average of the provided decay rates.
+        """
+        # Identify "significant" events
+        mask = (labels > 0.5) | (labels < -0.5)
+        if mask.sum() < 2:
+            estimated_kappa = np.mean(self.decays)
+        else:
+            # Convert selected times to datetime and then to seconds since epoch
+            selected_times = pd.to_datetime(times[mask])
+            # Convert to seconds (ensure integer division by 10**9)
+            selected_seconds = selected_times.astype(np.int64) // 10**9
+            selected_seconds = np.sort(selected_seconds)
+            time_diffs = np.diff(selected_seconds)
+            if len(time_diffs) == 0 or np.mean(time_diffs) == 0:
+                estimated_kappa = np.mean(self.decays)
+            else:
+                avg_diff = np.mean(time_diffs)
+                # kappa is set as 1/(average inter-event time) 
+                estimated_kappa = 1.0 / avg_diff
+        print(f"Estimated kappa: {estimated_kappa}")
         return estimated_kappa
 
     def plot(self):
