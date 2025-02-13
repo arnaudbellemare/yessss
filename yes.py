@@ -252,22 +252,39 @@ st.pyplot(fig2)
 # ---------------------------
 st.header("Section 2: Hawkes Process Simulation (Alternative)")
 
-# Simple simulation of a univariate Hawkes process using Ogata's thinning algorithm
+import numpy as np
+from numba import njit
+from numba.typed import List
+import matplotlib.pyplot as plt
+
+# Optimized simulation of a univariate Hawkes process using Ogata's thinning algorithm with Numba
+@njit
 def simulate_hawkes(mu, alpha, beta, T):
-    events = []
+    # Use numba's typed List for dynamic appending
+    events = List()
     t = 0.0
     while t < T:
-        # Current intensity lambda(t)
-        lambda_t = mu + sum(alpha * np.exp(-beta * (t - ti)) for ti in events if t > ti)
-        # Use lambda_t as an (adaptive) upper bound M
+        # Compute current intensity lambda(t)
+        lambda_t = mu
+        for ti in events:
+            if t > ti:
+                lambda_t += alpha * np.exp(-beta * (t - ti))
         M = lambda_t if lambda_t > 0 else mu
-        u = np.random.uniform()
+        
+        # Generate waiting time using exponential distribution
+        u = np.random.random()
         w = -np.log(u) / M
         t_candidate = t + w
         if t_candidate > T:
             break
-        lambda_candidate = mu + sum(alpha * np.exp(-beta * (t_candidate - ti)) for ti in events if t_candidate > ti)
-        d = np.random.uniform()
+        
+        # Compute intensity at candidate time
+        lambda_candidate = mu
+        for ti in events:
+            if t_candidate > ti:
+                lambda_candidate += alpha * np.exp(-beta * (t_candidate - ti))
+                
+        d = np.random.random()
         if d <= lambda_candidate / M:
             events.append(t_candidate)
         t = t_candidate
@@ -276,25 +293,31 @@ def simulate_hawkes(mu, alpha, beta, T):
 # Parameters for the Hawkes process simulation
 mu_sim = 0.1
 alpha_sim = 0.5
-beta_sim = 0.2
+beta_sim = 0.2  # slower decay leads to more events
 T_sim = 1000  # simulation end time
 
-# Simulate the Hawkes process
+# Simulate the Hawkes process using the optimized function
 simulated_events = simulate_hawkes(mu_sim, alpha_sim, beta_sim, T_sim)
 
-# Compute intensity over a time grid
+# Compute intensity over a time grid for plotting
 time_grid = np.linspace(0, T_sim, 1000)
-intensity = np.array([mu_sim + sum(alpha_sim * np.exp(-beta_sim * (t - ti)) for ti in simulated_events if t > ti)
-                      for t in time_grid])
+intensity = np.empty_like(time_grid)
+for idx, t in enumerate(time_grid):
+    lam = mu_sim
+    for ti in simulated_events:
+        if t > ti:
+            lam += alpha_sim * np.exp(-beta_sim * (t - ti))
+    intensity[idx] = lam
 
 # Plot the simulated intensity and events
-fig_alt, ax_alt = plt.subplots(figsize=(10, 6))
-ax_alt.plot(time_grid, intensity, label="Intensity", color="green")
-ax_alt.vlines(simulated_events, ymin=0, ymax=max(intensity)*0.8, color="red", alpha=0.5, label="Events")
-ax_alt.set_xlabel("Time")
-ax_alt.set_ylabel("Intensity")
-ax_alt.legend()
-st.pyplot(fig_alt)
+fig_opt, ax_opt = plt.subplots(figsize=(10, 6))
+ax_opt.plot(time_grid, intensity, label="Intensity", color="green")
+ax_opt.vlines(simulated_events, ymin=0, ymax=intensity.max()*0.8, color="red", alpha=0.5, label="Events")
+ax_opt.set_xlabel("Time")
+ax_opt.set_ylabel("Intensity")
+ax_opt.legend()
+plt.tight_layout()
+plt.show()
 import itertools
 import numpy as np
 # ---------------------------
