@@ -4,4 +4,4 @@ scipy
 matplotlib
 plotnine
 streamlit
-tick
+pyhawkes
