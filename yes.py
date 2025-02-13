@@ -252,6 +252,11 @@ st.pyplot(fig2)
 # ---------------------------
 st.header("Section 2: Hawkes Process Simulation (Alternative)")
 
+# ---------------------------
+# SECTION 2: Hawkes Process Simulation (Alternative to tick)
+# ---------------------------
+st.header("Section 2: Hawkes Process Simulation (Alternative)")
+
 import numpy as np
 from numba import njit
 from numba.typed import List
@@ -288,13 +293,18 @@ def simulate_hawkes(mu, alpha, beta, T):
         if d <= lambda_candidate / M:
             events.append(t_candidate)
         t = t_candidate
-    return np.array(events)
+    
+    # Manually convert the typed List to a NumPy array
+    result = np.empty(len(events), dtype=np.float64)
+    for i in range(len(events)):
+        result[i] = events[i]
+    return result
 
 # Parameters for the Hawkes process simulation
 mu_sim = 0.1
 alpha_sim = 0.5
 beta_sim = 0.2  # slower decay leads to more events
-T_sim = 1000  # simulation end time
+T_sim = 1000   # simulation end time
 
 # Simulate the Hawkes process using the optimized function
 simulated_events = simulate_hawkes(mu_sim, alpha_sim, beta_sim, T_sim)
@@ -318,6 +328,7 @@ ax_opt.set_ylabel("Intensity")
 ax_opt.legend()
 plt.tight_layout()
 plt.show()
+
 import itertools
 import numpy as np
 # ---------------------------
