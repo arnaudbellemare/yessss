@@ -21,33 +21,28 @@ lookback_options = {
 
 # Fetch real OHLCV data from Kraken
 def fetch_data(symbol, timeframe="1m", lookback_minutes=1440):
-    exchange = ccxt.kraken({
-        'enableRateLimit': True,  # Respect Kraken's rate limits
-    })
+    exchange = ccxt.kraken({'enableRateLimit': True})
     since = exchange.milliseconds() - lookback_minutes * 60 * 1000
     try:
         ohlcv = exchange.fetch_ohlcv(symbol, timeframe, since=since)
     except Exception as e:
         raise ValueError(f"Error fetching data for {symbol}: {e}")
-    
     if not ohlcv:
         raise ValueError(f"No data returned for {symbol}.")
-    
     df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
-    print("Fetched data columns:", df.columns)  # Debugging
-    print("First rows of fetched data:", df.head())  # Debugging
-    
+    print("Fetched data columns:", df.columns)
+    print("First rows of fetched data:", df.head())
     df["stamp"] = pd.to_datetime(df["timestamp"], unit="ms", utc=True)
     return df
 
-# Define the HawkesBVC class (custom estimation without tick)
+# Define the HawkesBVC class (custom metric estimation)
 class HawkesBVC:
     def __init__(self, window: int, kappa: float = None, dof=0.25, decays=None):
         """
         :param window: Lookback window for volatility calculation.
         :param kappa: Decay factor (if None, will be learned from data).
-        :param dof: Degrees-of-freedom for Student-t distribution (default 0.25).
-        :param decays: List of decay rates for fallback estimation (if None, defaults to [0.1, 0.5, 1.0]).
+        :param dof: Degrees-of-freedom for Student-t distribution.
+        :param decays: List of decay rates for fallback estimation.
         """
         self._window = window
         self._kappa = kappa
@@ -62,25 +57,17 @@ class HawkesBVC:
         r = cumr.diff().fillna(0.0)
         volume = df['volume']
         sigma = r.rolling(self._window).std().fillna(0.0)
-        
-        # Compute labels using Student's t CDF
         labels = np.array([self._label(r.iloc[i], sigma.iloc[i]) for i in range(len(r))])
-        
-        # Learn kappa if not provided
         if self._kappa is None:
             self._kappa = self._learn_kappa(times, labels, volume)
-        
         alpha_exp = np.exp(-self._kappa)
         bvc = np.zeros(len(volume), dtype=float)
         current_bvc = 0.0
-        
         for i in range(len(volume)):
             current_bvc = current_bvc * alpha_exp + volume.iloc[i] * labels[i]
             bvc[i] = current_bvc
-        
         if np.max(np.abs(bvc)) != 0:
             bvc = bvc / np.max(np.abs(bvc)) * scale
-        
         self.metrics = pd.DataFrame({'stamp': times, 'bvc': bvc})
         return self.metrics
 
@@ -92,15 +79,6 @@ class HawkesBVC:
             return 0.0
 
     def _learn_kappa(self, times, labels, volume):
-        """
-        Estimate kappa using a simple heuristic:
-        1. Select timestamps where the absolute label > 0.5.
-        2. Convert these timestamps to seconds.
-        3. Compute the average time difference between successive events.
-        4. Set kappa as the reciprocal of the average time difference.
-        
-        If there are too few events, fallback to the average of the provided decay rates.
-        """
         mask = (labels > 0.5) | (labels < -0.5)
         if mask.sum() < 2:
             estimated_kappa = np.mean(self.decays)
@@ -127,43 +105,38 @@ class HawkesBVC:
             + p9.theme(figure_size=(11, 5))
         )
 
-# Exponential Moving Average function
 def ema(data, window):
     return pd.Series(data).ewm(span=window, adjust=False).mean().values
 
-# Streamlit layout for Section 1
+# Streamlit App Layout for Section 1
 st.header("Section 1: Real Data Analysis")
 
-# Input widget: symbol (use "XBT/USD" for Kraken)
 symbol_bsi1 = st.sidebar.text_input(
-    "Enter Ticker Symbol for (Section 2)",
+    "Enter Ticker Symbol (Kraken Format, e.g. XBT/USD)",
     value="BTC/USD",
     key="symbol_bsi1"
 )
 
-# Input widget: lookback period
 lookback_label_bsi1 = st.sidebar.selectbox(
-    "Select Lookback Period (Section 2)",
+    "Select Lookback Period",
     list(lookback_options.keys()),
     key="lookback_label_bsi1"
 )
 limit_bsi1 = lookback_options[lookback_label_bsi1]
 
-st.write(f"Fetching data for (Section 2): **{symbol_bsi1}** with a lookback of **{limit_bsi1}** minutes.")
+st.write(f"Fetching data for **{symbol_bsi1}** with a lookback of **{limit_bsi1}** minutes.")
 
-# Fetch OHLCV data using ccxt (real, recent data)
 try:
     prices_bsi = fetch_data(symbol=symbol_bsi1, timeframe="1m", lookback_minutes=limit_bsi1)
 except Exception as e:
-    st.error(f"Error fetching data (Section 2): {e}")
+    st.error(f"Error fetching data: {e}")
     st.stop()
 
-# Ensure required columns and set index
-prices_bsi.dropna(subset=['close','volume'], inplace=True)
+prices_bsi.dropna(subset=['close', 'volume'], inplace=True)
 prices_bsi['stamp'] = pd.to_datetime(prices_bsi['stamp'])
 prices_bsi.set_index('stamp', inplace=True)
 
-# Data Transformations:
+# Data transformations
 prices_bsi['ScaledPrice'] = np.log(prices_bsi['close'] / prices_bsi['close'].iloc[0]) * 1e4
 prices_bsi['ScaledPrice_EMA'] = ema(prices_bsi['ScaledPrice'].values, window=10)
 prices_bsi['cum_vol'] = prices_bsi['volume'].cumsum()
@@ -180,16 +153,10 @@ df_skew = prices_bsi.copy()
 df_skew['hlc3'] = (df_skew['high'] + df_skew['low'] + df_skew['close']) / 3.0
 SkewLength = 14
 alpha_val = 2.0 / (1.0 + SkewLength)
-
-df_skew['TrueRange'] = (
-    np.abs(df_skew['hlc3'] - df_skew['hlc3'].shift(1, fill_value=df_skew['hlc3'].iloc[0]))
-    / df_skew['hlc3'].shift(1, fill_value=df_skew['hlc3'].iloc[0])
-)
-
-dev_max_series = []
-dev_min_series = []
+df_skew['TrueRange'] = (np.abs(df_skew['hlc3'] - df_skew['hlc3'].shift(1, fill_value=df_skew['hlc3'].iloc[0]))
+                         / df_skew['hlc3'].shift(1, fill_value=df_skew['hlc3'].iloc[0]))
+dev_max_series, dev_min_series = [], []
 dev_max_prev, dev_min_prev = 1.618, 1.618
-
 for i in range(len(df_skew)):
     if i == 0:
         dev_max_series.append(dev_max_prev)
@@ -198,51 +165,40 @@ for i in range(len(df_skew)):
         current_tr = df_skew['TrueRange'].iloc[i]
         prior_hlc3 = df_skew['hlc3'].iloc[i - 1]
         current_hlc3 = df_skew['hlc3'].iloc[i]
-        
         if current_hlc3 > prior_hlc3:
             dev_max_prev = alpha_val * current_tr + (1 - alpha_val) * dev_max_prev
         else:
             dev_max_prev = (1 - alpha_val) * dev_max_prev
-            
         if current_hlc3 < prior_hlc3:
             dev_min_prev = alpha_val * current_tr + (1 - alpha_val) * dev_min_prev
         else:
             dev_min_prev = (1 - alpha_val) * dev_min_prev
-            
         dev_max_series.append(dev_max_prev)
         dev_min_series.append(dev_min_prev)
-        
 df_skew['deviation_max'] = dev_max_series
 df_skew['deviation_min'] = dev_min_series
 df_skew['normalized_skew'] = (df_skew['deviation_max'] / df_skew['deviation_min'] - 1) * 3
 df_skew['normalized_z'] = (df_skew['normalized_skew'] + 3) / 6
 df_skew['normalized_z'] = df_skew['normalized_z'].ffill().bfill()
 df_skew['ScaledPrice'] = np.log(df_skew['close'] / df_skew['close'].iloc[0]) * 1e4
-
 ema_window = 10
 df_skew['ScaledPrice_EMA'] = ema(df_skew['ScaledPrice'].values, ema_window)
 
-# Compute Hawkes BVC metrics using our custom class and merge into df_skew
 hawkes_bvc = HawkesBVC(window=20, kappa=0.1)
 bvc_metrics = hawkes_bvc.eval(prices_bsi.reset_index())
 df_skew = df_skew.merge(bvc_metrics, on='stamp', how='left')
-
 global_min = df_skew['ScaledPrice'].min()
 global_max = df_skew['ScaledPrice'].max()
 
-# Plot skewness with EMA overlay and BVC-based segment coloring
 fig1, ax1 = plt.subplots(figsize=(10, 4), dpi=120)
 norm_bvc = plt.Normalize(df_skew['bvc'].min(), df_skew['bvc'].max())
-
 for i in range(len(df_skew['stamp']) - 1):
     xvals = df_skew['stamp'].iloc[i:i+2]
     yvals = df_skew['ScaledPrice'].iloc[i:i+2]
     bvc_val = df_skew['bvc'].iloc[i]
-    
     cmap_bvc = plt.cm.Blues if bvc_val >= 0 else plt.cm.Reds
     color = cmap_bvc(norm_bvc(bvc_val))
     ax1.plot(xvals, yvals, color=color, linewidth=1)
-
 ax1.plot(df_skew['stamp'], df_skew['ScaledPrice_EMA'], color='gray', linewidth=0.7, label=f"EMA({ema_window})")
 ax1.set_xlabel("Time", fontsize=8)
 ax1.set_ylabel("ScaledPrice", fontsize=8)
@@ -258,7 +214,6 @@ ax1.set_ylim(global_min - margin, global_max + margin)
 plt.tight_layout()
 st.pyplot(fig1)
 
-# Plot the Hawkes BVC metric separately
 fig2, ax2 = plt.subplots(figsize=(10, 3), dpi=120)
 ax2.plot(bvc_metrics['stamp'], bvc_metrics['bvc'], color="blue", linewidth=0.8, label="BVC")
 ax2.set_xlabel("Time", fontsize=8)
@@ -273,52 +228,50 @@ plt.tight_layout()
 st.pyplot(fig2)
 
 # ---------------------------
-# SECTION 2: Hawkes Process Simulation using tick
+# SECTION 2: Hawkes Process Simulation (Alternative to tick)
 # ---------------------------
-st.header("Section 2: Hawkes Process Simulation")
+st.header("Section 2: Hawkes Process Simulation (Alternative)")
 
-# Import tick simulation and plotting functions
-from tick.hawkes import SimuHawkesSumExpKernels, HawkesSumExpKern
-from tick.plot import plot_point_process
+# Simple simulation of a univariate Hawkes process using Ogata's thinning algorithm
+def simulate_hawkes(mu, alpha, beta, T):
+    events = []
+    t = 0.0
+    while t < T:
+        # Current intensity lambda(t)
+        lambda_t = mu + sum(alpha * np.exp(-beta * (t - ti)) for ti in events if t > ti)
+        # Use lambda_t as an (adaptive) upper bound M
+        M = lambda_t if lambda_t > 0 else mu
+        u = np.random.uniform()
+        w = -np.log(u) / M
+        t_candidate = t + w
+        if t_candidate > T:
+            break
+        lambda_candidate = mu + sum(alpha * np.exp(-beta * (t_candidate - ti)) for ti in events if t_candidate > ti)
+        d = np.random.uniform()
+        if d <= lambda_candidate / M:
+            events.append(t_candidate)
+        t = t_candidate
+    return np.array(events)
 
-# Simulation parameters
-end_time = 1000  # simulation end time
-decays = [0.1, 0.5, 1.0]
-baseline = [0.12, 0.07]
-# For a 2-dimensional process; adjust adjacency as needed
-adjacency = [[[0, 0.1, 0.4], [0.2, 0, 0.2]], [[0, 0, 0], [0.6, 0.3, 0]]]
+# Parameters for the Hawkes process simulation
+mu_sim = 0.1
+alpha_sim = 0.5
+beta_sim = 1.0
+T_sim = 1000  # simulation end time
 
 # Simulate the Hawkes process
-hawkes_exp_kernels = SimuHawkesSumExpKernels(
-    adjacency=adjacency, decays=decays, baseline=baseline, end_time=end_time,
-    verbose=False, seed=1039
-)
-hawkes_exp_kernels.track_intensity(0.1)
-hawkes_exp_kernels.simulate()
+simulated_events = simulate_hawkes(mu_sim, alpha_sim, beta_sim, T_sim)
 
-# Fit a Hawkes process model using tick's learner
-learner = HawkesSumExpKern(decays, penalty='elasticnet', elastic_net_ratio=0.8)
-learner.fit(hawkes_exp_kernels.timestamps)
+# Compute intensity over a time grid
+time_grid = np.linspace(0, T_sim, 1000)
+intensity = np.array([mu_sim + sum(alpha_sim * np.exp(-beta_sim * (t - ti)) for ti in simulated_events if t > ti)
+                      for t in time_grid])
 
-# Define time window for plotting
-t_min = 100
-t_max = 200
-
-# Create a figure with two subplots
-fig_sim, ax_list = plt.subplots(2, 1, figsize=(10, 6))
-learner.plot_estimated_intensity(hawkes_exp_kernels.timestamps, t_min=t_min, t_max=t_max, ax=ax_list)
-plot_point_process(hawkes_exp_kernels, plot_intensity=True, t_min=t_min, t_max=t_max, ax=ax_list)
-
-# Customize the plots
-for ax in ax_list:
-    if len(ax.lines) >= 2:
-        ax.lines[0].set_label('Estimated intensity')
-        ax.lines[1].set_label('Original intensity')
-        ax.lines[1].set_linestyle('--')
-        ax.lines[1].set_alpha(0.8)
-    if len(ax.collections) >= 2:
-        ax.collections[1].set_alpha(0)
-    ax.legend()
-
-fig_sim.tight_layout()
-st.pyplot(fig_sim)
+# Plot the simulated intensity and events
+fig_alt, ax_alt = plt.subplots(figsize=(10, 6))
+ax_alt.plot(time_grid, intensity, label="Intensity", color="green")
+ax_alt.vlines(simulated_events, ymin=0, ymax=max(intensity)*0.8, color="red", alpha=0.5, label="Events")
+ax_alt.set_xlabel("Time")
+ax_alt.set_ylabel("Intensity")
+ax_alt.legend()
+st.pyplot(fig_alt)
