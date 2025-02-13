@@ -322,7 +322,7 @@ def evaluate_model(bvc_metrics, actual_data):
     return mse
 
 # Define a grid of candidate kappa values (decay factor)
-kappa_vals = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.40, 0.45, 0.50, 0.55]
+kappa_vals = [0.2, 0.25, 0.3, 0.35, 0.40, 0.45, 0.50, 0.55]
 
 best_score = float('inf')
 best_params = {}
