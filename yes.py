@@ -295,3 +295,45 @@ ax_alt.set_xlabel("Time")
 ax_alt.set_ylabel("Intensity")
 ax_alt.legend()
 st.pyplot(fig_alt)
+import itertools
+import numpy as np
+
+# Example performance evaluation function
+def evaluate_model(bvc_metrics, actual_data):
+    """
+    Compare the BVC output with a proxy of market activity.
+    This is just an example: you might compute the mean squared error
+    between the BVC time series and some target variable derived from the data.
+    """
+    # For illustration, assume 'actual_data' has a column 'target'
+    # Here, we align on timestamps and compute an MSE
+    merged = actual_data.merge(bvc_metrics, on='stamp', how='inner')
+    mse = np.mean((merged['target'] - merged['bvc'])**2)
+    return mse
+
+# Define parameter grids for tuning
+kappa_vals = [0.05, 0.1, 0.15, 0.2]
+alpha_vals = [0.3, 0.5, 0.7]   # For simulation if needed
+beta_vals = [0.8, 1.0, 1.2]    # For simulation if needed
+
+# Assuming 'prices_bsi' DataFrame has been fetched and preprocessed
+best_score = float('inf')
+best_params = {}
+
+for kappa in kappa_vals:
+    # Update the HawkesBVC instance with each candidate kappa
+    hawkes_bvc = HawkesBVC(window=20, kappa=kappa)
+    bvc_metrics = hawkes_bvc.eval(prices_bsi.reset_index())
+    
+    # Evaluate performance – here you could also loop over alpha & beta if your
+    # evaluation combines both the BVC and simulation models.
+    score = evaluate_model(bvc_metrics, prices_bsi.reset_index())
+    
+    print(f"Tested kappa: {kappa}, Score: {score}")
+    
+    if score < best_score:
+        best_score = score
+        best_params = {'kappa': kappa}
+
+print("Best parameters found:", best_params)
+
