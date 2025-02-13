@@ -1,10 +1,7 @@
-─────────────────────────────────────────────────────────────────────────────
-
 import pandas as pd
 import numpy as np
 from scipy.stats import t as studentt
 import matplotlib.pyplot as plt
-from tick.hawkes import HawkesSumExpKern
 
 class HawkesBVC:
     def __init__(self, window: int, kappa: float = None, dof=0.25, decays=None):
@@ -12,7 +9,7 @@ class HawkesBVC:
         :param window: Lookback window for volatility calculation
         :param kappa: Decay factor (if None, will be learned from data)
         :param dof: Degrees-of-freedom for Student-t distribution (default 0.25)
-        :param decays: List of decay rates for Hawkes learning (if None, defaults to [0.1, 0.5, 1.0])
+        :param decays: List of decay rates for estimation (if None, defaults to [0.1, 0.5, 1.0])
         """
         self._window = window
         self._kappa = kappa
@@ -57,12 +54,10 @@ class HawkesBVC:
             return 0.0
 
     def _learn_kappa(self, times, labels, volume):
-        """ Learn kappa using tick's Hawkes process estimation """
-        timestamps = [times[labels > 0.5].values, times[labels < -0.5].values]
-        learner = HawkesSumExpKern(decays=self.decays, penalty='elasticnet', elastic_net_ratio=0.8)
-        learner.fit(timestamps)
-        estimated_kappa = np.mean(learner.decays)  # Take the average of learned decay rates
-        print(f'Estimated kappa: {estimated_kappa}')
+        # Without tick, we use a simple fallback:
+        # Return the average of the provided decay rates.
+        estimated_kappa = np.mean(self.decays)
+        print(f'Fallback kappa: {estimated_kappa}')
         return estimated_kappa
 
     def plot(self):
@@ -79,6 +74,26 @@ class HawkesBVC:
 ###############################
 # SECTION 2: Momentum, Skewness & Hawkes BVC Analysis
 ###############################
+import streamlit as st
+import matplotlib.dates as mdates
+
+# Placeholder definitions for dependencies in your code.
+# Replace these with your actual implementations.
+lookback_options = {'1h': 60, '6h': 360, '24h': 1440}
+
+def fetch_data(symbol, timeframe, lookback_minutes):
+    # Dummy data for example purposes.
+    date_rng = pd.date_range(start='2021-01-01', periods=lookback_minutes, freq='T')
+    data = pd.DataFrame(date_rng, columns=['stamp'])
+    data['close'] = np.linspace(100, 200, lookback_minutes)
+    data['volume'] = np.random.randint(1, 100, size=lookback_minutes)
+    data['high'] = data['close'] * 1.01
+    data['low'] = data['close'] * 0.99
+    return data
+
+def ema(data, window):
+    return pd.Series(data).ewm(span=window, adjust=False).mean().values
+
 st.header("Section 1:")
 
 symbol_bsi1 = st.sidebar.text_input(
@@ -109,7 +124,7 @@ prices_bsi['stamp'] = pd.to_datetime(prices_bsi['stamp'])
 # Set the index to the "stamp" column
 prices_bsi.set_index('stamp', inplace=True)
 
-# Now safely do your other transformations:
+# Transformations:
 prices_bsi['ScaledPrice'] = np.log(prices_bsi['close'] / prices_bsi['close'].iloc[0]) * 1e4
 prices_bsi['ScaledPrice_EMA'] = ema(prices_bsi['ScaledPrice'].values, window=10)
 prices_bsi = prices_bsi.dropna(subset=['close', 'volume'])
@@ -150,12 +165,12 @@ for i in range(len(df_skew)):
         if current_hlc3 > prior_hlc3:
             dev_max_prev = alpha_val * current_tr + (1 - alpha_val) * dev_max_prev
         else:
-            dev_max_prev = alpha_val * 0 + (1 - alpha_val) * dev_max_prev
+            dev_max_prev = (1 - alpha_val) * dev_max_prev
             
         if current_hlc3 < prior_hlc3:
             dev_min_prev = alpha_val * current_tr + (1 - alpha_val) * dev_min_prev
         else:
-            dev_min_prev = alpha_val * 0 + (1 - alpha_val) * dev_min_prev
+            dev_min_prev = (1 - alpha_val) * dev_min_prev
             
         dev_max_series.append(dev_max_prev)
         dev_min_series.append(dev_min_prev)
@@ -167,10 +182,9 @@ df_skew['normalized_skew'] = (df_skew['deviation_max'] / df_skew['deviation_min'
 df_skew['normalized_z'] = (df_skew['normalized_skew'] + 3) / 6
 df_skew['normalized_z'] = df_skew['normalized_z'].ffill().bfill()
 
-
 df_skew['ScaledPrice'] = np.log(df_skew['close'] / df_skew['close'].iloc[0]) * 1e4
 
-# Compute an EMA over ScaledPrice using the jit-compiled function
+# Compute EMA over ScaledPrice
 ema_window = 10
 df_skew['ScaledPrice_EMA'] = ema(df_skew['ScaledPrice'].values, ema_window)
 
@@ -185,7 +199,6 @@ global_max = df_skew['ScaledPrice'].max()
 # Plot Skewness + EMA overlay with BVC-based colors
 fig, ax = plt.subplots(figsize=(10, 4), dpi=120)
 
-# Create a normalization object for BVC values.
 norm_bvc = plt.Normalize(df_skew['bvc'].min(), df_skew['bvc'].max())
 
 for i in range(len(df_skew['stamp']) - 1):
@@ -193,7 +206,6 @@ for i in range(len(df_skew['stamp']) - 1):
     yvals = df_skew['ScaledPrice'].iloc[i:i+2]
     bvc_val = df_skew['bvc'].iloc[i]
     
-    # Choose colormap: Blues for nonnegative, Reds for negative BVC.
     cmap_bvc = plt.cm.Blues if bvc_val >= 0 else plt.cm.Reds
     color = cmap_bvc(norm_bvc(bvc_val))
     
@@ -221,7 +233,6 @@ ax.text(
     ha='center', va='center'
 )
 
-# Pad the y‑axis limits (5% margin)
 price_range = global_max - global_min
 margin = price_range * 0.05
 ax.set_ylim(global_min - margin, global_max + margin)
@@ -250,4 +261,4 @@ ax_bvc.text(
     ha='center', va='center'
 )
 plt.tight_layout()
-st.pyplot(fig_bvc) 
+st.pyplot(fig_bvc)
