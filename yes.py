@@ -15,7 +15,7 @@ lookback_options = {
     "1 Month": 43200
 }
 
-# Fetch data using ccxt from Kraken
+# Fetch data using ccxt from Kraken (this will pull recent, real data)
 def fetch_data(symbol, timeframe="1m", lookback_minutes=1440):
     exchange = ccxt.kraken({
         'enableRateLimit': True,  # Respect Kraken's rate limits
@@ -149,7 +149,7 @@ limit_bsi1 = lookback_options[lookback_label_bsi1]
 
 st.write(f"Fetching data for (Section 2): **{symbol_bsi1}** with a lookback of **{limit_bsi1}** minutes.")
 
-# Fetch OHLCV data using ccxt
+# Fetch OHLCV data using ccxt (this pulls real, recent data)
 try:
     prices_bsi = fetch_data(symbol=symbol_bsi1, timeframe="1m", lookback_minutes=limit_bsi1)
 except Exception as e:
