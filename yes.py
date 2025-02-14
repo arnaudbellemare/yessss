@@ -280,7 +280,7 @@ def simulate_hawkes(mu, alpha, beta, T):
 # Parameters for the Hawkes process simulation
 mu_sim = 0.1
 alpha_sim = 0.5
-beta_sim = 1.0
+beta_sim = 3.0
 T_sim = 1000  # simulation end time
 
 # Simulate the Hawkes process
