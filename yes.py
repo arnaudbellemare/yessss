@@ -212,7 +212,7 @@ for i in range(len(df_skew['stamp']) - 1):
     else:
         color = 'red'
     
-    ax1.plot(xvals, vwap_segment, color=color, linewidth=1, label='VWAP' if i == 0 else "")
+    ax1.plot(xvals, vwap_segment, color=color, linewidth=0.6, label='VWAP' if i == 0 else "")
 
 # Plot the EMA
 ax1.plot(df_skew['stamp'], df_skew['ScaledPrice_EMA'], color='gray', linewidth=0.7, label=f"EMA({ema_window})")
