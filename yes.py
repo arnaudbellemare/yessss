@@ -299,7 +299,7 @@ def simulate_hawkes(mu, alpha, beta, T):
 # Parameters for the Hawkes process simulation
 mu_sim = 0.1
 alpha_sim = 0.5
-beta_sim = 0.2  # slower decay leads to more events
+beta_sim = 1.0  # slower decay leads to more events
 T_sim = 1000   # simulation end time
 
 # Simulate the Hawkes process using the optimized function
