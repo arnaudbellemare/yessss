@@ -191,15 +191,27 @@ global_min = df_skew['ScaledPrice'].min()
 global_max = df_skew['ScaledPrice'].max()
 
 fig1, ax1 = plt.subplots(figsize=(10, 4), dpi=120)
-norm_bvc = plt.Normalize(df_skew['bvc'].min(), df_skew['bvc'].max())
+
+# Loop through segments of the PRICE
 for i in range(len(df_skew['stamp']) - 1):
     xvals = df_skew['stamp'].iloc[i:i+2]
-    yvals = df_skew['ScaledPrice'].iloc[i:i+2]
-    bvc_val = df_skew['bvc'].iloc[i]
-    cmap_bvc = plt.cm.Blues if bvc_val >= 0 else plt.cm.Reds
-    color = cmap_bvc(norm_bvc(bvc_val))
-    ax1.plot(xvals, yvals, color=color, linewidth=1)
-ax1.plot(df_skew['stamp'], df_skew['ScaledPrice_EMA'], color='gray', linewidth=0.7, label=f"EMA({ema_window})")
+    price_segment = df_skew['ScaledPrice'].iloc[i:i+2]
+    
+    # Compare price vs. VWAP at the start of the segment
+    if df_skew['ScaledPrice'].iloc[i] >= df_skew['vwap_transformed'].iloc[i]:
+        color = 'blue'
+    else:
+        color = 'red'
+    
+    ax1.plot(xvals, price_segment, color=color, linewidth=1)
+
+# Plot the VWAP as a single line (gray)
+ax1.plot(df_skew['stamp'], df_skew['vwap_transformed'], color='gray', linewidth=1, label='VWAP')
+
+# Optionally plot the EMA in another color
+ax1.plot(df_skew['stamp'], df_skew['ScaledPrice_EMA'], color='black', linewidth=0.7, label=f"EMA({ema_window})")
+
+# Labels, formatting, etc.
 ax1.set_xlabel("Time", fontsize=8)
 ax1.set_ylabel("ScaledPrice", fontsize=8)
 ax1.xaxis.set_major_locator(mdates.AutoDateLocator())
@@ -207,12 +219,19 @@ ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d %H:%M'))
 plt.setp(ax1.get_xticklabels(), rotation=30, ha='right', fontsize=7)
 plt.setp(ax1.get_yticklabels(), fontsize=7)
 ax1.legend(fontsize=7)
-ax1.text(0.5, 0.5, symbol_bsi1, transform=ax1.transAxes, fontsize=24, color='lightgrey', alpha=0.3, ha='center', va='center')
+
+# Add watermark text if desired
+ax1.text(0.5, 0.5, symbol_bsi1, transform=ax1.transAxes, fontsize=24, 
+         color='lightgrey', alpha=0.3, ha='center', va='center')
+
+# Adjust the y-limits with a margin
 price_range = global_max - global_min
 margin = price_range * 0.05
 ax1.set_ylim(global_min - margin, global_max + margin)
+
 plt.tight_layout()
 st.pyplot(fig1)
+
 
 fig2, ax2 = plt.subplots(figsize=(10, 3), dpi=120)
 ax2.plot(bvc_metrics['stamp'], bvc_metrics['bvc'], color="blue", linewidth=0.8, label="BVC")
