@@ -192,8 +192,6 @@ global_max = df_skew['ScaledPrice'].max()
 
 fig1, ax1 = plt.subplots(figsize=(10, 4), dpi=120)
 norm_bvc = plt.Normalize(df_skew['bvc'].min(), df_skew['bvc'].max())
-
-# Plot the price line with BVC color coding
 for i in range(len(df_skew['stamp']) - 1):
     xvals = df_skew['stamp'].iloc[i:i+2]
     yvals = df_skew['ScaledPrice'].iloc[i:i+2]
@@ -201,23 +199,7 @@ for i in range(len(df_skew['stamp']) - 1):
     cmap_bvc = plt.cm.Blues if bvc_val >= 0 else plt.cm.Reds
     color = cmap_bvc(norm_bvc(bvc_val))
     ax1.plot(xvals, yvals, color=color, linewidth=1)
-
-# Plot EMA of ScaledPrice
 ax1.plot(df_skew['stamp'], df_skew['ScaledPrice_EMA'], color='gray', linewidth=0.7, label=f"EMA({ema_window})")
-
-# Overlay the VWAP with conditional coloring
-# (blue if price is above VWAP, red if below)
-for i in range(len(df_skew['stamp']) - 1):
-    xvals = df_skew['stamp'].iloc[i:i+2]
-    # Compare the price and the transformed VWAP at the start of the segment
-    if df_skew['ScaledPrice'].iloc[i] >= df_skew['vwap_transformed'].iloc[i]:
-        color = 'blue'
-    else:
-        color = 'red'
-    # Add label only for the first segment to avoid duplicate legend entries
-    ax1.plot(xvals, df_skew['vwap_transformed'].iloc[i:i+2], color=color, linewidth=0.7, 
-             label="VWAP" if i == 0 else None)
-
 ax1.set_xlabel("Time", fontsize=8)
 ax1.set_ylabel("ScaledPrice", fontsize=8)
 ax1.xaxis.set_major_locator(mdates.AutoDateLocator())
@@ -231,8 +213,6 @@ margin = price_range * 0.05
 ax1.set_ylim(global_min - margin, global_max + margin)
 plt.tight_layout()
 st.pyplot(fig1)
-
-
 
 fig2, ax2 = plt.subplots(figsize=(10, 3), dpi=120)
 ax2.plot(bvc_metrics['stamp'], bvc_metrics['bvc'], color="blue", linewidth=0.8, label="BVC")
@@ -252,78 +232,49 @@ st.pyplot(fig2)
 # ---------------------------
 st.header("Section 2: Hawkes Process Simulation (Alternative)")
 
-
-import numpy as np
-from numba import njit
-from numba.typed import List
-import matplotlib.pyplot as plt
-
-# Optimized simulation of a univariate Hawkes process using Ogata's thinning algorithm with Numba
-@njit
+# Simple simulation of a univariate Hawkes process using Ogata's thinning algorithm
 def simulate_hawkes(mu, alpha, beta, T):
-    # Use numba's typed List for dynamic appending
-    events = List()
+    events = []
     t = 0.0
     while t < T:
-        # Compute current intensity lambda(t)
-        lambda_t = mu
-        for ti in events:
-            if t > ti:
-                lambda_t += alpha * np.exp(-beta * (t - ti))
+        # Current intensity lambda(t)
+        lambda_t = mu + sum(alpha * np.exp(-beta * (t - ti)) for ti in events if t > ti)
+        # Use lambda_t as an (adaptive) upper bound M
         M = lambda_t if lambda_t > 0 else mu
-        
-        # Generate waiting time using exponential distribution
-        u = np.random.random()
+        u = np.random.uniform()
         w = -np.log(u) / M
         t_candidate = t + w
         if t_candidate > T:
             break
-        
-        # Compute intensity at candidate time
-        lambda_candidate = mu
-        for ti in events:
-            if t_candidate > ti:
-                lambda_candidate += alpha * np.exp(-beta * (t_candidate - ti))
-                
-        d = np.random.random()
+        lambda_candidate = mu + sum(alpha * np.exp(-beta * (t_candidate - ti)) for ti in events if t_candidate > ti)
+        d = np.random.uniform()
         if d <= lambda_candidate / M:
             events.append(t_candidate)
         t = t_candidate
-    
-    # Manually convert the typed List to a NumPy array
-    result = np.empty(len(events), dtype=np.float64)
-    for i in range(len(events)):
-        result[i] = events[i]
-    return result
+    return np.array(events)
 
 # Parameters for the Hawkes process simulation
 mu_sim = 0.1
 alpha_sim = 0.5
-beta_sim = 1.0  # slower decay leads to more events
-T_sim = 1000   # simulation end time
+beta_sim = 1.0
+T_sim = 1000  # simulation end time
 
-# Simulate the Hawkes process using the optimized function
+# Simulate the Hawkes process
 simulated_events = simulate_hawkes(mu_sim, alpha_sim, beta_sim, T_sim)
 
-# Compute intensity over a time grid for plotting
+# Compute intensity over a time grid
 time_grid = np.linspace(0, T_sim, 1000)
-intensity = np.empty_like(time_grid)
-for idx, t in enumerate(time_grid):
-    lam = mu_sim
-    for ti in simulated_events:
-        if t > ti:
-            lam += alpha_sim * np.exp(-beta_sim * (t - ti))
-    intensity[idx] = lam
+intensity = np.array([mu_sim + sum(alpha_sim * np.exp(-beta_sim * (t - ti)) for ti in simulated_events if t > ti)
+                      for t in time_grid])
 
 # Plot the simulated intensity and events
-fig_opt, ax_opt = plt.subplots(figsize=(10, 6))
-ax_opt.plot(time_grid, intensity, label="Intensity", color="green")
-ax_opt.vlines(simulated_events, ymin=0, ymax=intensity.max()*0.8, color="red", alpha=0.5, label="Events")
-ax_opt.set_xlabel("Time")
-ax_opt.set_ylabel("Intensity")
-ax_opt.legend()
-plt.tight_layout()
-plt.show()
+fig_alt, ax_alt = plt.subplots(figsize=(10, 6))
+ax_alt.plot(time_grid, intensity, label="Intensity", color="green")
+ax_alt.vlines(simulated_events, ymin=0, ymax=max(intensity)*0.8, color="red", alpha=0.5, label="Events")
+ax_alt.set_xlabel("Time")
+ax_alt.set_ylabel("Intensity")
+ax_alt.legend()
+st.pyplot(fig_alt)
 
 import itertools
 import numpy as np
