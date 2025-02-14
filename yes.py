@@ -208,7 +208,7 @@ for i in range(len(df_skew['stamp']) - 1):
     vwap_segment = df_skew['vwap_transformed'].iloc[i:i+2]
     
     if df_skew['ScaledPrice'].iloc[i] >= df_skew['vwap_transformed'].iloc[i]:
-        color = '#10a4f4'
+        color = 'blue'
     else:
         color = 'red'
     
